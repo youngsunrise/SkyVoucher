@@ -13,8 +13,7 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/voucher-center")
 public class UserVoucherController {
 
-    @Autowired
-    UserVoucherService userVoucherService;
+
     @Autowired
     VoucherService voucherService;
     @Autowired
@@ -23,7 +22,7 @@ public class UserVoucherController {
     //限时秒杀券领取入口
     @PostMapping("getVoucher/{user_id}/{voucher_id}")
     public Result getSecKillVoucher(@PathVariable("user_id") Long userId, @PathVariable("voucher_id") Long voucherId) {
-        return Result.ok(userVoucherService.getSecKillVoucher(userId, voucherId));
+        return Result.ok(voucherSeckillService.getSecKillVoucher(userId, voucherId));
     }
 
     //添加秒杀优惠劵接口
