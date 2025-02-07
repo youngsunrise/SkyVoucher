@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.hellobike.skyvoucher.mapper.VoucherSeckillMapper">
+
+    <resultMap id="BaseResultMap" type="com.hellobike.skyvoucher.entity.VoucherSeckill">
+            <id property="id" column="v_id" jdbcType="BIGINT"/>
+            <result property="stock" column="v_stock" jdbcType="INTEGER"/>
+            <result property="beginTime" column="v_begin_time" jdbcType="TIMESTAMP"/>
+            <result property="endTime" column="v_end_time" jdbcType="TIMESTAMP"/>
+            <result property="updateTime" column="v_update_time" jdbcType="TIMESTAMP"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        v_id,v_stock,v_begin_time,
+        v_end_time,v_update_time
+    </sql>
+</mapper>

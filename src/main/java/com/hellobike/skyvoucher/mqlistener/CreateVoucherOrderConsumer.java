@@ -45,6 +45,7 @@ public class CreateVoucherOrderConsumer implements RocketMQListener<Message> {
             log.info("消息已被成功消费！", userId, voucherId);
         } else {
             //调用下单业务逻辑
+            //因为voucherSeckillService为注入的Bean，实际上是Spring代理的对象，因此事务不会失效
             Result result = voucherSeckillService.createUserVoucher(uniqueId, userId, voucherId);
             if (Boolean.FALSE.equals(result.getSuccess())) {
                 log.info("异步领券出现异常，msg:{}, 错误信息:{}", dto, result.getErrorMsg());
