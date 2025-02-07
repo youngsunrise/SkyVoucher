@@ -20,3 +20,9 @@ spring:
         max-idle: 10
         min-idle: 1
         time-between-eviction-runs: 10s
+rocketmq:
+  name-server: 192.168.220.128:9876
+  producer:
+    group: seckillgroup
+    send-message-timeout: 3000
+
