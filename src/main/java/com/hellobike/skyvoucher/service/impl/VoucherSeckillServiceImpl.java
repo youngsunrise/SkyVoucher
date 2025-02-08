@@ -22,14 +22,16 @@ import org.redisson.api.RedissonClient;
 import org.springframework.aop.framework.AopContext;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Objects;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -55,6 +57,12 @@ public class VoucherSeckillServiceImpl extends ServiceImpl<VoucherSeckillMapper,
 
     @Autowired
     RedissonClient redissonClient;
+
+    private static final DefaultRedisScript<Long> seckillStockOperate = new DefaultRedisScript<>();
+    static {
+        seckillStockOperate.setResultType(Long.TYPE);
+        seckillStockOperate.setLocation(new ClassPathResource("seckillStockOperate.Lua"));
+    }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -124,32 +132,63 @@ public class VoucherSeckillServiceImpl extends ServiceImpl<VoucherSeckillMapper,
 //            return proxy.createUserVoucher(userId, voucherId);
 
 
-            //redis一人一单校验
-            if (stringRedisTemplate.opsForValue().get(RedisConsts.USER_VOUCHER_RECORD +
-                    userId.toString() + ":" + voucherId.toString()) != null) {
-                return Result.fail("用户已经领取了该券！");
+            //通过Lua脚本将如下操作原子化
+            //1. redis一人一单校验 2.redis库存校验 3.扣减库存 4.抢券后记录在redis
+            //调用Lua脚本,传入参数用户id，券id，用户券记录key前缀，库存key前缀，领券记录nextId
+            long nextId = YitIdHelper.nextId();
+            String voucherGainRecord = RedisConsts.USER_VOUCHER_RECORD +
+                    userId.toString() + ":"
+                    + voucherId.toString();
+            List<String> keyList = new ArrayList<>(Arrays.asList(
+                    voucherGainRecord,                            //用户领券记录key
+                    RedisConsts.SEC_KILL_STOCK_KEY + voucherId    //券库存key
+            ));
+            Long result = stringRedisTemplate.execute(
+                    seckillStockOperate,
+                    keyList,
+                    String.valueOf(nextId)
+            );
+            if (null == result) return Result.fail("脚本执行出现错误！");
+            switch (result.intValue()){
+                case 1: return Result.fail("用户已经领取了该券！");
+                case 2: return Result.fail("未找到redis券库存信息！");
+                case 3: return Result.fail("库存不足！");
             }
-            //redis库存校验
-            String stockKey = RedisConsts.SEC_KILL_STOCK_KEY + voucherId;
-            if (null == stringRedisTemplate.opsForValue().get(stockKey)) {
-                return Result.fail("未找到redis券库存信息！");
-            }
-            if (Long.valueOf(stringRedisTemplate.opsForValue().get(stockKey)) > 0) {
-                //扣减库存
-                stringRedisTemplate.opsForValue().decrement(RedisConsts.SEC_KILL_STOCK_KEY + voucherId, 1);
-                //唯一ID生成器
-                long nextId = YitIdHelper.nextId();
-                //抢券后记录在redis
-                stringRedisTemplate.opsForValue().set(RedisConsts.USER_VOUCHER_RECORD
-                        + userId + ":" + voucherId, nextId + "", 24 * 7, TimeUnit.HOURS);
-                //异步更新
-                UserVoucherDTO userVoucherDTO = new UserVoucherDTO(nextId, userId, voucherId);
-                //发送rocketmq实现异步下单
-                createVoucherOrderProducer.sendAsyncMsg(JSON.toJSONString(userVoucherDTO), RocketMqConsts.GET_VOUCHER_TAG);
-                return Result.ok(nextId);
-            } else {
-                return Result.fail("库存不足！");
-            }
+            //异步更新
+            UserVoucherDTO userVoucherDTO = new UserVoucherDTO(nextId, userId, voucherId);
+            //发送rocketmq实现异步下单
+            createVoucherOrderProducer.sendAsyncMsg(JSON.toJSONString(userVoucherDTO), RocketMqConsts.GET_VOUCHER_TAG);
+            return Result.ok(nextId);
+
+
+
+
+//            //redis一人一单校验
+//            if (stringRedisTemplate.opsForValue().get(RedisConsts.USER_VOUCHER_RECORD +
+//                    userId.toString() + ":" + voucherId.toString()) != null) {
+//                return Result.fail("用户已经领取了该券！");
+//            }
+//            //redis库存校验
+//            String stockKey = RedisConsts.SEC_KILL_STOCK_KEY + voucherId;
+//            if (null == stringRedisTemplate.opsForValue().get(stockKey)) {
+//                return Result.fail("未找到redis券库存信息！");
+//            }
+//            if (Long.valueOf(stringRedisTemplate.opsForValue().get(stockKey)) > 0) {
+//                //扣减库存
+//                stringRedisTemplate.opsForValue().decrement(RedisConsts.SEC_KILL_STOCK_KEY + voucherId, 1);
+//                //唯一ID生成器
+//                long nextId = YitIdHelper.nextId();
+//                //抢券后记录在redis
+//                stringRedisTemplate.opsForValue().set(RedisConsts.USER_VOUCHER_RECORD
+//                        + userId + ":" + voucherId, nextId + "", 24 * 7, TimeUnit.HOURS);
+//                //异步更新
+//                UserVoucherDTO userVoucherDTO = new UserVoucherDTO(nextId, userId, voucherId);
+//                //发送rocketmq实现异步下单
+//                createVoucherOrderProducer.sendAsyncMsg(JSON.toJSONString(userVoucherDTO), RocketMqConsts.GET_VOUCHER_TAG);
+//                return Result.ok(nextId);
+//            } else {
+//                return Result.fail("库存不足！");
+//            }
 
         } finally {
 //            simpleRedisLock.unlock();
