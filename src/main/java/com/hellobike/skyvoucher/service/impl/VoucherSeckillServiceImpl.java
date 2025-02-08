@@ -16,6 +16,9 @@ import com.hellobike.skyvoucher.req.AddSecKillVoucherReq;
 import com.hellobike.skyvoucher.service.VoucherSeckillService;
 import com.hellobike.skyvoucher.mapper.VoucherSeckillMapper;
 import com.hellobike.skyvoucher.utils.*;
+import org.redisson.Redisson;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.aop.framework.AopContext;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -46,8 +49,12 @@ public class VoucherSeckillServiceImpl extends ServiceImpl<VoucherSeckillMapper,
 
     @Autowired
     UserVoucherMapper userVoucherMapper;
+
     @Autowired
     CreateVoucherOrderProducer createVoucherOrderProducer;
+
+    @Autowired
+    RedissonClient redissonClient;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -87,16 +94,28 @@ public class VoucherSeckillServiceImpl extends ServiceImpl<VoucherSeckillMapper,
      * 通过redis预热库存等信息，提高响应速度；同时借助mq异步完成数据库更新确保最终一致性
      */
     @Override
-    public Result getSecKillVoucher(Long userId, Long voucherId) {
-        //引入自定义的分布式锁，保证一人一单，一个用户，同一时间只有一个线程为其执行业务
-        SimpleRedisLock simpleRedisLock = new SimpleRedisLock(RedisConsts.SECKILL_LOCK + userId, stringRedisTemplate);
-        //尝试获取锁
-        Boolean getLock = simpleRedisLock.tryLock(5);
-        if (!getLock) {
-            //竞争失败线程直接返回
+    public Result getSecKillVoucher(Long userId, Long voucherId){
+//        //引入自定义的分布式锁，保证一人一单，一个用户，同一时间只有一个线程为其执行业务
+//        SimpleRedisLock simpleRedisLock = new SimpleRedisLock(RedisConsts.SECKILL_LOCK + userId, stringRedisTemplate);
+//        //尝试获取锁
+//        Boolean getLock = simpleRedisLock.tryLock(5);
+//        if (!getLock) {
+//            //竞争失败线程直接返回
+//            return Result.fail("抢券失败");
+//        }
+
+        /**
+        RLock myLock = Redisson.create().getLock(RedisConsts.SECKILL_LOCK + userId);
+         一定要用注入的 redissonClient 来获取R锁（这样才是config里我们往IoC里丢的配置好的Bean）
+         直接使用Redisson.create()会导致redisson用默认配置创建新连接，到redis
+        **/
+        //使用redisson提供的redLock
+        RLock myLock = redissonClient.getLock(RedisConsts.SECKILL_LOCK + userId);
+        //不需设置重试时间，不希望黄牛恶意多线程
+        Boolean getLock = myLock.tryLock();
+        if (Boolean.FALSE.equals(getLock)) {
             return Result.fail("抢券失败");
         }
-
 
         try {
             //获取锁线程执行业务逻辑
@@ -133,7 +152,8 @@ public class VoucherSeckillServiceImpl extends ServiceImpl<VoucherSeckillMapper,
             }
 
         } finally {
-            simpleRedisLock.unlock();
+//            simpleRedisLock.unlock();
+            myLock.unlock();
         }
 
     }
