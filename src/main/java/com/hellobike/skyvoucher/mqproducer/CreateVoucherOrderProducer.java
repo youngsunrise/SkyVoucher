@@ -73,7 +73,7 @@ public class CreateVoucherOrderProducer {
                         stringRedisTemplate.opsForValue().increment(RedisConsts.SEC_KILL_STOCK_KEY + dto.getVoucherId(), 1);
                         //删除领取记录
                         stringRedisTemplate.opsForValue().getAndDelete(RedisConsts.USER_VOUCHER_RECORD
-                                + dto.getUserId() + ":" + dto.getUserId());
+                                + dto.getUserId() + ":" + dto.getVoucherId());
                     }
                 });
     }
